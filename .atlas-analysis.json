@@ -1,0 +1,63 @@
+{
+  "projectType": "general",
+  "projectName": "Cookie Party Invitro",
+  "projectDescription": "A WebGL creative coding demo with real-time Blender integration for artistic 3D visualizations",
+  "theme": "palm",
+  "primaryColor": "#00FFFF",
+  "lightColor": "#FF0066",
+  "darkColor": "#0099CC",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "quickstart",
+          "setup"
+        ]
+      },
+      {
+        "group": "Architecture",
+        "pages": [
+          "architecture/overview",
+          "architecture/webgl-rendering",
+          "architecture/blender-integration",
+          "architecture/animation-system"
+        ]
+      },
+      {
+        "group": "Development",
+        "pages": [
+          "development/workflow",
+          "development/shaders",
+          "development/parameters",
+          "development/hot-reload"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/webgl-api",
+          "reference/blender-websocket",
+          "reference/shader-reference"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Real-time WebGL rendering with TWGL.js",
+    "Blender integration via WebSocket for live animation control",
+    "Custom GLSL shaders with motion blur and gaussian blur effects",
+    "Hot-reload development workflow for shaders and animations",
+    "Anaglyph 3D stereo rendering (red/cyan)",
+    "Animation export from Blender to JSON format"
+  ],
+  "publicApiSurface": [
+    "BlenderWebSocket class (WebSocket connection to Blender)",
+    "loadFiles() function (asset loader)",
+    "render() function (main rendering loop)",
+    "getAnimation() function (animation evaluation)",
+    "Material system (geometry, point, text, blur, screen shaders)",
+    "Parameter configuration (divergence, fieldOfView, motionFrames)"
+  ]
+}
