@@ -1,0 +1,262 @@
+---
+title: WebGL API reference
+description: Core WebGL rendering functions for Cookie Party Invitro
+---
+
+The WebGL API provides the core rendering functions for Cookie Party Invitro. These functions handle the main render loop, geometry drawing, shader compilation, and post-processing effects.
+
+## Main rendering loop
+
+### render()
+
+The main rendering function that executes every frame via `requestAnimationFrame()`.
+
+```javascript
+function render(elapsed)
+```
+
+<ParamField path="elapsed" type="number">
+  Elapsed time in seconds from Blender WebSocket or audio playback
+</ParamField>
+
+**Behavior:**
+
+- Updates camera position and target from animation data
+- Calculates stereoscopic camera matrices (left/right)
+- Sets up uniforms for time, fade, expansion, and growth
+- Renders geometry with red and cyan tints for anaglyph effect
+- Applies motion blur and gaussian blur post-processing
+- Composites final frame to screen
+- Requests next animation frame
+
+**Example usage:**
+
+```javascript demo/script/webgl.js
+requestAnimationFrame(render);
+```
+
+## Drawing functions
+
+### draw()
+
+Draws geometry using a shader program.
+
+```javascript
+function draw(shader, geometry, mode)
+```
+
+<ParamField path="shader" type="ProgramInfo">
+  TWGL program info object containing compiled shader program
+</ParamField>
+
+<ParamField path="geometry" type="BufferInfo">
+  TWGL buffer info containing vertex attributes and indices
+</ParamField>
+
+<ParamField path="mode" type="GLenum">
+  WebGL drawing mode (gl.LINES, gl.POINTS, or gl.TRIANGLES)
+</ParamField>
+
+**Behavior:**
+
+- Activates shader program
+- Binds vertex buffers and attributes
+- Sets all shader uniforms from global `uniforms` object
+- Executes draw call
+
+**Example usage:**
+
+```javascript demo/script/webgl.js
+draw(materials['geometry'], geometryLine, gl.LINES);
+draw(materials['point'], geometryPoint, gl.POINTS);
+draw(materials['text'], geometryTexts[textList[currentText]], gl.LINES);
+```
+
+### drawFrame()
+
+Draws a fullscreen quad to a framebuffer target.
+
+```javascript
+function drawFrame(shader, geometry, frame)
+```
+
+<ParamField path="shader" type="ProgramInfo">
+  TWGL program info for post-processing shader
+</ParamField>
+
+<ParamField path="geometry" type="BufferInfo">
+  Fullscreen quad geometry (typically `geometryQuad`)
+</ParamField>
+
+<ParamField path="frame" type="Framebuffer | null">
+  Target framebuffer, or null to render to screen
+</ParamField>
+
+**Behavior:**
+
+- Binds target framebuffer
+- Clears color and depth buffers to black
+- Sets viewport to canvas dimensions
+- Draws geometry as triangles
+
+**Example usage:**
+
+```javascript demo/script/webgl.js
+// Render to framebuffer
+drawFrame(materials['blur'], geometryQuad, frameBlurA.framebuffer);
+
+// Render to screen
+drawFrame(materials['screen'], geometryQuad, null);
+```
+
+## Shader management
+
+### loadMaterials()
+
+Compiles shader source into WebGL program objects.
+
+```javascript
+function loadMaterials()
+```
+
+**Behavior:**
+
+- Iterates through `materialMap` object
+- For each material, compiles vertex and fragment shaders
+- Creates TWGL program info and stores in `materials` object
+- Called on initialization and during shader hot-reload
+
+**Material mapping:**
+
+```javascript demo/script/webgl.js
+var materialMap = {
+  'geometry':  ['geometry.vert', 'tint.frag'],
+  'point':     ['point.vert',    'tint.frag'],
+  'text':      ['text.vert',     'tint.frag'],
+  'blur':      ['screen.vert',   'blur.frag'],
+  'motion':    ['screen.vert',   'motion.frag'],
+  'screen':    ['screen.vert',   'screen.frag']
+};
+```
+
+**Example usage:**
+
+```javascript demo/script/webgl.js
+loadMaterials();
+
+// Hot-reload on shader change
+socket.on('change', function(data) {
+  if (data.path.includes("demo/shader/")) {
+    loadMaterials();
+  }
+});
+```
+
+## Post-processing setup
+
+### setupMotionBlur()
+
+Initializes framebuffers and generates motion blur shader dynamically.
+
+```javascript
+function setupMotionBlur()
+```
+
+**Behavior:**
+
+- Creates `motionFrames` number of framebuffers (configurable)
+- Generates fragment shader that samples all motion frames
+- Averages samples to create temporal motion blur effect
+- Stores frame textures in uniform array
+
+**Generated shader example:**
+
+```glsl
+precision mediump float;
+varying vec2 texcoord;
+uniform float motionFrames;
+uniform sampler2D frame0,frame1,frame2,frame3;
+void main() {
+  gl_FragColor = vec4(0);
+  gl_FragColor += texture2D(frame0, texcoord)/motionFrames;
+  gl_FragColor += texture2D(frame1, texcoord)/motionFrames;
+  gl_FragColor += texture2D(frame2, texcoord)/motionFrames;
+  gl_FragColor += texture2D(frame3, texcoord)/motionFrames;
+}
+```
+
+**Example usage:**
+
+```javascript demo/script/webgl.js
+setupMotionBlur();
+```
+
+## Animation utilities
+
+### getAnimation()
+
+Evaluates an animation curve at a specific time.
+
+```javascript
+function getAnimation(name, elapsed)
+```
+
+<ParamField path="name" type="string">
+  Name of animation action (e.g., 'fade', 'expansion', 'growth', 'text')
+</ParamField>
+
+<ParamField path="elapsed" type="number">
+  Time value in seconds to evaluate
+</ParamField>
+
+<ParamField path="returns" type="number">
+  X component of location path at given time
+</ParamField>
+
+**Behavior:**
+
+- Accesses animation library loaded from JSON
+- Evaluates location path for named animation
+- Returns first component (X value) as scalar
+
+**Example usage:**
+
+```javascript demo/script/webgl.js
+uniforms.fade = getAnimation('fade', elapsed);
+uniforms.expansion = getAnimation('expansion', elapsed);
+uniforms.growth = getAnimation('growth', elapsed);
+var fieldOfView = 20 + 60 * getAnimation('fov', elapsed);
+currentText = getAnimation('text', elapsed);
+```
+
+## Global uniforms
+
+All rendering functions use a shared `uniforms` object that is passed to shaders:
+
+<Accordion title="View all uniforms">
+  
+  **Time and animation:**
+  - `time` - Current elapsed time in seconds
+  - `timeRotation` - Accumulated rotation time with speed multiplier
+  - `fade` - Fade animation value (0-1)
+  - `expansion` - Expansion animation value
+  - `growth` - Growth animation value
+  
+  **Camera:**
+  - `camera` - Camera position [x, y, z]
+  - `target` - Look-at target [x, y, z]
+  - `viewProjection` - Combined view-projection matrix
+  
+  **Rendering:**
+  - `tint` - Color tint [r, g, b, a]
+  - `resolution` - Canvas dimensions [width, height]
+  
+  **Post-processing:**
+  - `frame` - Current frame texture
+  - `frameBlur` - Blurred frame texture
+  - `frame0, frame1, ...` - Motion blur frame textures
+  - `motionFrames` - Number of motion blur frames
+  - `direction` - Blur direction [x, y]
+  - `flip` - Boolean to flip texture coordinates
+  
+</Accordion>

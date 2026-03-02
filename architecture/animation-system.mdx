@@ -1,0 +1,294 @@
+---
+title: Animation system
+description: Blender HTML5 animations library for evaluating exported animation curves
+---
+
+The animation system uses the Blender HTML5 animations library to evaluate animation curves exported from Blender as JSON.
+
+## Blender HTML5 animations library
+
+The library provides an `ActionLibrary` class that parses Blender animation data and evaluates Bezier curves:
+
+```javascript
+// Load animation data from JSON file
+loadFiles('animation/', ['animation.json'], function(animationData) {
+  var animations = new blenderHTML5Animations.ActionLibrary(
+    JSON.parse(animationData[Object.keys(animationData)[0]])
+  );
+  
+  // Evaluate animation at current time
+  var cameraPosition = animations['camera'].paths['location'].evaluate(elapsed);
+  var targetPosition = animations['target'].paths['location'].evaluate(elapsed);
+});
+```
+
+<Info>
+The Blender HTML5 animations library handles Bezier curve interpolation automatically. You only need to provide the time value and it returns the interpolated result.
+</Info>
+
+## Animation JSON format
+
+Animations are exported from Blender as JSON with this structure:
+
+```json
+{
+  "camera": [{
+    "location": [
+      [
+        [
+          [0.0, 0.0, -21.947633870442708, 0.0, 21.947633870442708, 0.0, 0],
+          [56.21666666666667, 1.0, 35.68752848307292, 1.0, 60.32249348958333, 1.0, 0],
+          [66.73333333333333, 1.0, 62.627506510416666, 1.0, 70.83916015625, 1.0, 0]
+        ],
+        0
+      ],
+      [...],
+      [...]
+    ],
+    "rotation_euler": [...],
+    "scale": [...]
+  }]
+}
+```
+
+Each animation contains:
+
+- **Action name** - Object identifier (e.g., "camera", "target", "fade")
+- **Paths** - Animation channels (location, rotation_euler, scale)
+- **Keyframes** - Array of Bezier control points
+  - Time value
+  - Value at keyframe
+  - Left and right Bezier handles
+  - Interpolation mode
+
+## Animation evaluation
+
+Animations are evaluated each frame in the render loop:
+
+```javascript
+function render(elapsed) {
+  // Update time from Blender or real-time
+  var deltaTime = elapsed - uniforms.time;
+  uniforms.time = elapsed;
+  
+  // Evaluate rotation speed animation and accumulate
+  uniforms.timeRotation += deltaTime * getAnimation('rotation-speed', elapsed);
+  
+  // Evaluate camera and target positions
+  camera = animations['camera'].paths['location'].evaluate(elapsed);
+  target = animations['target'].paths['location'].evaluate(elapsed);
+  
+  // Evaluate custom properties
+  uniforms.fade = getAnimation('fade', elapsed);
+  uniforms.expansion = getAnimation('expansion', elapsed);
+  uniforms.growth = getAnimation('growth', elapsed);
+  currentText = getAnimation('text', elapsed);
+  
+  // Dynamic field of view
+  var fieldOfView = 20 + 60 * getAnimation('fov', elapsed);
+  projection = m4.perspective(
+    fieldOfView * Math.PI / 180, 
+    gl.canvas.width / gl.canvas.height, 
+    0.01, 100.0
+  );
+}
+```
+
+### Helper function
+
+For single-value animations, a helper function extracts the first component:
+
+```javascript
+function getAnimation(name, elapsed) {
+  return animations[name].paths['location'].evaluate(elapsed)[0];
+}
+```
+
+<Note>
+Blender exports location as a 3D vector `[x, y, z]`, but for scalar properties like fade or growth, only the X component is used.
+</Note>
+
+## Animation properties
+
+The demo uses these animated properties:
+
+### Camera
+
+Controls the camera position in 3D space:
+
+```javascript
+camera = animations['camera'].paths['location'].evaluate(elapsed);
+// Returns [x, y, z]
+```
+
+Used to create the view matrix for rendering.
+
+### Target
+
+Controls where the camera is looking:
+
+```javascript
+target = animations['target'].paths['location'].evaluate(elapsed);
+// Returns [x, y, z]
+```
+
+Combined with camera position to calculate the view direction.
+
+### Rotation speed
+
+Controls the speed of geometry rotation:
+
+```javascript
+uniforms.timeRotation += deltaTime * getAnimation('rotation-speed', elapsed);
+// Returns scalar value (multiplier)
+```
+
+Multiplies the delta time to speed up or slow down rotation:
+
+```glsl
+// In geometry.vert shader
+pos.xz *= rotation(timeRotation * seed.w);
+pos.yz *= rotation(timeRotation * seed.w);
+pos.yx *= rotation(timeRotation * seed.w);
+```
+
+### Fade
+
+Controls overall scene brightness:
+
+```javascript
+uniforms.fade = getAnimation('fade', elapsed);
+// Returns 0.0 to 1.0
+```
+
+Applied in the final screen shader:
+
+```glsl
+// In screen.frag shader
+gl_FragColor *= fade;
+```
+
+### Expansion
+
+Controls how far particles expand from center:
+
+```javascript
+uniforms.expansion = getAnimation('expansion', elapsed);
+// Returns scalar value
+```
+
+Used in the geometry shader (currently commented out in source):
+
+```glsl
+// pos.xyz *= expansion;
+pos.xyz += seed.xyz * 3.;
+```
+
+### Growth
+
+Controls the size of the geometry sphere:
+
+```javascript
+uniforms.growth = getAnimation('growth', elapsed);
+// Returns scalar value
+```
+
+Applied in the geometry shader:
+
+```glsl
+pos.xyz = normalize(pos.xyz) * max(3. * growth, length(pos.xyz));
+```
+
+### Text
+
+Selects which text mesh to display:
+
+```javascript
+currentText = getAnimation('text', elapsed);
+// Returns integer index (0-12)
+```
+
+Used to index into the text array:
+
+```javascript
+var textList = [
+  'cookie.obj', 'festival.obj', 'date.obj', 'landy.obj',
+  'shader.obj', 'beamer.obj', 'play.obj', 'concert.obj',
+  'workshop.obj', 'dj.obj', 'lazer.obj', 'minitel.obj',
+  'credits.obj'
+];
+
+draw(materials['text'], geometryTexts[textList[currentText]], gl.LINES);
+```
+
+### FOV (Field of view)
+
+Controls the camera's field of view:
+
+```javascript
+var fieldOfView = 20 + 60 * getAnimation('fov', elapsed);
+// Range: 20 to 80 degrees
+```
+
+Creates zoom in/out effects by changing the perspective projection:
+
+```javascript
+projection = m4.perspective(
+  fieldOfView * Math.PI / 180,
+  gl.canvas.width / gl.canvas.height,
+  0.01, 100.0
+);
+```
+
+## Hot-reload support
+
+The animation system supports hot-reloading during development:
+
+```javascript
+socket = io('http://localhost:5776');
+socket.on('change', function(data) { 
+  if (data.path.includes("demo/animation/")) {
+    const url = data.path.substr("demo/animation/".length);
+    if (url.substr(url.lastIndexOf('.') + 1) == 'json') {
+      setTimeout(function(){
+        loadFiles("animation/", [url], function(anim) {
+          animations = new blenderHTML5Animations.ActionLibrary(
+            JSON.parse(anim[Object.keys(anim)[0]])
+          );
+        });
+      }, 250);
+    }
+  }
+});
+```
+
+<Info>
+When you export new animation data from Blender, the system detects the file change and reloads the animations without requiring a page refresh.
+</Info>
+
+## Camera matrix calculation
+
+The camera and target positions are used to build view matrices:
+
+```javascript
+// Calculate camera basis vectors
+var z = v3.normalize(v3.subtract(camera, target));
+var x = v3.normalize(v3.cross([0, 1, 0], z));
+var y = v3.normalize(v3.cross(z, x));
+
+// Create stereo camera matrices with eye divergence
+var d = divergence;
+cameraLeft = m4.lookAt(
+  [camera[0] - d*x[0], camera[1] - d*x[1], camera[2] - d*x[2]], 
+  target, y
+);
+cameraRight = m4.lookAt(
+  [camera[0] + d*x[0], camera[1] + d*x[0], camera[2] + d*x[0]], 
+  target, y
+);
+
+// Combine with projection
+uniforms.viewProjection = m4.multiply(projection, m4.inverse(cameraLeft));
+```
+
+This creates smooth camera motion controlled entirely from Blender's animation timeline.

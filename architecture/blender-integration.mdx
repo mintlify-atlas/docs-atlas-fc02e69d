@@ -1,0 +1,292 @@
+---
+title: Blender integration
+description: WebSocket-based integration for real-time Blender timeline synchronization
+---
+
+The Blender integration allows you to control the WebGL animation timeline from Blender in real-time using WebSocket communication.
+
+## BlenderWebSocket class
+
+The `BlenderWebSocket` class manages the connection to Blender and emits events for timeline updates:
+
+```javascript
+const url = 'ws://localhost:8137/';
+
+class BlenderWebSocket {
+  constructor() {
+    const listeners = this.listeners = {};
+
+    function emit(event) {
+      var handlers = listeners[event];
+      if (handlers) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        handlers.forEach(function (handler) {
+          handler.apply(null, args);
+        });
+      }
+    }
+
+    let websocket;
+
+    function connect() {
+      websocket = new WebSocket(url);
+
+      websocket.onopen = function () {
+        emit('open');
+      };
+
+      websocket.onclose = function () {
+        emit('close');
+        setTimeout(connect, 100);  // Auto-reconnect
+      };
+
+      websocket.onerror = function () {
+        emit('error');
+      };
+
+      websocket.onmessage = function (event) {
+        try {
+          var data = JSON.parse(event.data);
+        } catch (err) {
+          emit('badFormat', event.data);
+          return;
+        }
+
+        switch (data[0]) {
+        case 'refresh':
+          emit('refresh');
+          break;
+
+        case 'time':
+          self.time = data[1];
+          emit('time', self.time);
+          break;
+
+        default:
+          emit('unknownMessage', data);
+          break;
+        }
+      };
+    }
+
+    connect();
+  }
+
+  addListener(event, handler) {
+    if (!this.listeners[event])
+      this.listeners[event] = [handler];
+    else
+      this.listeners[event].push(handler);
+  }
+
+  removeListener(event, handler) {
+    if (!this.listeners[event])
+      return;
+    var index = this.listeners[event].indexOf(handler);
+    if (index !== -1)
+      this.listeners[event].splice(index, 1);
+  }
+}
+```
+
+## WebSocket connection
+
+The connection is established to `ws://localhost:8137/` and includes automatic reconnection:
+
+<Tabs>
+  <Tab title="Connection">
+    ```javascript
+    function connect() {
+      websocket = new WebSocket(url);
+      
+      websocket.onopen = function () {
+        emit('open');
+      };
+      
+      websocket.onclose = function () {
+        emit('close');
+        setTimeout(connect, 100);  // Reconnect after 100ms
+      };
+      
+      websocket.onerror = function () {
+        emit('error');
+      };
+    }
+    
+    connect();
+    ```
+  </Tab>
+  <Tab title="Usage">
+    ```javascript
+    var blenderSocket = new BlenderWebSocket();
+    
+    blenderSocket.addListener('open', function() {
+      console.log('Connected to Blender');
+    });
+    
+    blenderSocket.addListener('close', function() {
+      console.log('Disconnected from Blender');
+    });
+    
+    blenderSocket.addListener('time', function(newTime) {
+      timeElapsed = newTime;
+    });
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+The WebSocket automatically reconnects if the connection is lost. This allows you to restart Blender without reloading the webpage.
+</Info>
+
+## Message protocol
+
+Messages are sent as JSON arrays where the first element is the message type:
+
+### Time message
+
+Updates the current animation time:
+
+```json
+["time", 2.5]
+```
+
+The time value represents seconds in the animation timeline. The handler updates the elapsed time:
+
+```javascript
+websocket.onmessage = function (event) {
+  var data = JSON.parse(event.data);
+  
+  switch (data[0]) {
+  case 'time':
+    self.time = data[1];
+    emit('time', self.time);
+    break;
+  }
+};
+```
+
+### Refresh message
+
+Triggers a page reload for hot-reloading:
+
+```json
+["refresh"]
+```
+
+Useful for development when you want to force a complete reload:
+
+```javascript
+case 'refresh':
+  emit('refresh');
+  break;
+```
+
+## Timeline control
+
+The WebGL animation is controlled by Blender's timeline through the `time` event:
+
+```javascript
+var animations = new blenderHTML5Animations.ActionLibrary(
+  JSON.parse(animationData[Object.keys(animationData)[0]])
+);
+var timeElapsed = 0;
+
+var blenderSocket = new BlenderWebSocket();
+blenderSocket.addListener('time', function(newTime) { 
+  timeElapsed = newTime; 
+});
+
+function render(elapsed) {
+  elapsed = timeElapsed;  // Use Blender time instead of real time
+  
+  // Evaluate animations at current time
+  camera = animations['camera'].paths['location'].evaluate(elapsed);
+  target = animations['target'].paths['location'].evaluate(elapsed);
+  uniforms.fade = getAnimation('fade', elapsed);
+  uniforms.expansion = getAnimation('expansion', elapsed);
+  uniforms.growth = getAnimation('growth', elapsed);
+  
+  // Render scene...
+}
+```
+
+<Note>
+When connected to Blender, scrubbing the timeline in Blender instantly updates the WebGL scene. This enables an artist-friendly workflow where you can design animations in Blender and see the results in real-time.
+</Note>
+
+## Event listener API
+
+The class provides methods to add and remove event listeners:
+
+```javascript
+addListener(event, handler) {
+  if (!this.listeners[event])
+    this.listeners[event] = [handler];
+  else
+    this.listeners[event].push(handler);
+}
+
+removeListener(event, handler) {
+  if (!this.listeners[event])
+    return;
+  var index = this.listeners[event].indexOf(handler);
+  if (index !== -1)
+    this.listeners[event].splice(index, 1);
+}
+```
+
+### Available events
+
+- `open` - Fired when WebSocket connection is established
+- `close` - Fired when connection is closed
+- `error` - Fired when connection error occurs
+- `time` - Fired when timeline update is received (includes time value)
+- `refresh` - Fired when refresh command is received
+- `badFormat` - Fired when message has invalid JSON format
+- `unknownMessage` - Fired when message type is not recognized
+
+## Integration example
+
+Here's a complete example of using the Blender integration:
+
+```javascript
+// Initialize animation system
+var animations = new blenderHTML5Animations.ActionLibrary(
+  JSON.parse(animationData)
+);
+var timeElapsed = 0;
+uniforms.time = 0;
+
+// Connect to Blender
+var blenderSocket = new BlenderWebSocket();
+
+blenderSocket.addListener('open', function() {
+  console.log('Blender connected');
+});
+
+blenderSocket.addListener('time', function(newTime) { 
+  timeElapsed = newTime;
+  console.log('Time update:', newTime);
+});
+
+blenderSocket.addListener('refresh', function() {
+  location.reload();
+});
+
+// Render loop
+function render(elapsed) {
+  elapsed = timeElapsed;  // Use Blender time
+  
+  var deltaTime = elapsed - uniforms.time;
+  uniforms.time = elapsed;
+  uniforms.timeRotation += deltaTime * getAnimation('rotation-speed', elapsed);
+  
+  // Evaluate animations from Blender export
+  camera = animations['camera'].paths['location'].evaluate(elapsed);
+  target = animations['target'].paths['location'].evaluate(elapsed);
+  
+  // Render scene...
+  requestAnimationFrame(render);
+}
+```

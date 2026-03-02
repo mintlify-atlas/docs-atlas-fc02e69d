@@ -1,0 +1,468 @@
+---
+title: Shader reference
+description: GLSL vertex and fragment shaders for Cookie Party Invitro
+---
+
+Cookie Party Invitro uses custom GLSL shaders for geometry rendering and post-processing effects. All shaders use `mediump` precision for mobile compatibility.
+
+## Vertex shaders
+
+Vertex shaders transform 3D geometry with animation effects and camera projection.
+
+### geometry.vert
+
+Geometry vertex shader with expansion and rotation effects.
+
+**Attributes:**
+
+<ParamField path="position" type="vec4">
+  Vertex position in object space
+</ParamField>
+
+<ParamField path="seed" type="vec4">
+  Random seed values (xyz) and vertex index (w) for animation variation
+</ParamField>
+
+**Uniforms:**
+
+<ParamField path="viewProjection" type="mat4">
+  Combined view-projection matrix
+</ParamField>
+
+<ParamField path="time" type="float">
+  Current animation time in seconds
+</ParamField>
+
+<ParamField path="expansion" type="float">
+  Expansion animation parameter
+</ParamField>
+
+<ParamField path="growth" type="float">
+  Growth animation parameter
+</ParamField>
+
+<ParamField path="timeRotation" type="float">
+  Accumulated rotation time
+</ParamField>
+
+<ParamField path="resolution" type="vec2">
+  Canvas resolution [width, height]
+</ParamField>
+
+**Effects:**
+
+- Per-vertex rotation based on seed and time
+- Expansion outward from center
+- Growth clamp with minimum radius
+- Smooth fade in/out using smoothstep
+
+**Code snippet:**
+
+```glsl demo/shader/geometry.vert
+// expansion
+float fade = smoothstep(0.0,0.1,ratio)*smoothstep(1.0,0.9,ratio);
+float wave = pow(ratio, 4.0);
+pos.xz *= rotation(timeRotation*seed.w);
+pos.yz *= rotation(timeRotation*seed.w);
+pos.yx *= rotation(timeRotation*seed.w);
+pos.xyz *= 0.2 + smoothstep(0.5,1.0,abs(seed.z));
+pos.xyz += seed.xyz * 3.;
+pos.xyz = normalize(pos.xyz) * max(3.*growth,length(pos.xyz));
+pos.xz *= rotation(t*1.687);
+pos.yz *= rotation(t*1.57468);
+pos.yx *= rotation(t*1.132);
+```
+
+### point.vert
+
+Point cloud vertex shader with expansion and dynamic point size.
+
+**Attributes:**
+
+<ParamField path="position" type="vec4">
+  Vertex position in object space
+</ParamField>
+
+<ParamField path="seed" type="vec4">
+  Random seed values for particle variation
+</ParamField>
+
+**Uniforms:**
+
+Same as `geometry.vert`
+
+**Effects:**
+
+- Per-particle rotation and scaling
+- Radial expansion based on seed values
+- Dynamic point size (1-5 pixels) based on seed.x
+- Fade effect using smoothstep
+
+**Point size calculation:**
+
+```glsl demo/shader/point.vert
+gl_PointSize = 1.+4.*smoothstep(0.6,1.,abs(seed.x));
+gl_PointSize *= fade;
+```
+
+### text.vert
+
+Text rendering vertex shader with growth animation.
+
+**Attributes:**
+
+<ParamField path="position" type="vec4">
+  Vertex position from OBJ text mesh
+</ParamField>
+
+<ParamField path="seed" type="vec4">
+  Seed values (w component used for variation)
+</ParamField>
+
+**Uniforms:**
+
+<ParamField path="viewProjection" type="mat4">
+  Combined view-projection matrix
+</ParamField>
+
+<ParamField path="time" type="float">
+  Current animation time
+</ParamField>
+
+<ParamField path="growth" type="float">
+  Scale multiplier for text size
+</ParamField>
+
+<ParamField path="resolution" type="vec2">
+  Canvas resolution
+</ParamField>
+
+**Effects:**
+
+- Simple uniform scaling based on growth parameter
+- No rotation or expansion (text remains readable)
+
+**Code snippet:**
+
+```glsl demo/shader/text.vert
+void main () {
+  vec4 pos = position;
+  float t = seed.w * PI * 2.;
+  pos.xyz *= growth;
+  gl_Position = viewProjection * pos;
+  gl_PointSize = 20.;
+}
+```
+
+### screen.vert
+
+Fullscreen quad vertex shader for post-processing.
+
+**Attributes:**
+
+<ParamField path="position" type="vec4">
+  Normalized device coordinates [-1, 1]
+</ParamField>
+
+**Uniforms:**
+
+<ParamField path="resolution" type="vec2">
+  Canvas resolution (unused but available)
+</ParamField>
+
+**Varyings:**
+
+<ParamField path="texcoord" type="vec2">
+  Texture coordinates [0, 1] passed to fragment shader
+</ParamField>
+
+**Behavior:**
+
+- Converts position [-1, 1] to texcoord [0, 1]
+- Outputs position directly in clip space
+- Used for all post-processing effects
+
+**Code snippet:**
+
+```glsl demo/shader/screen.vert
+void main () {
+  texcoord = position.xy * 0.5 + 0.5;
+  gl_Position = vec4(position.xy, 0, 1);
+}
+```
+
+## Fragment shaders
+
+Fragment shaders apply color and post-processing effects.
+
+### tint.frag
+
+Simple tint fragment shader for solid color rendering.
+
+**Uniforms:**
+
+<ParamField path="time" type="float">
+  Current animation time (unused but available)
+</ParamField>
+
+<ParamField path="tint" type="vec4">
+  RGBA color to output
+</ParamField>
+
+**Behavior:**
+
+- Outputs uniform tint color directly
+- Used for geometry, points, and text
+- Red [1,0,0,1] for left eye, cyan [0,1,1,1] for right eye in anaglyph rendering
+
+**Code snippet:**
+
+```glsl demo/shader/tint.frag
+void main() {
+  gl_FragColor = vec4(tint);
+}
+```
+
+### blur.frag
+
+Gaussian blur fragment shader with multi-tap sampling.
+
+**Uniforms:**
+
+<ParamField path="frame" type="sampler2D">
+  Input texture to blur
+</ParamField>
+
+<ParamField path="resolution" type="vec2">
+  Texture resolution for offset calculation
+</ParamField>
+
+<ParamField path="time" type="float">
+  Current animation time (unused)
+</ParamField>
+
+<ParamField path="flip" type="bool">
+  Whether to flip Y texture coordinate
+</ParamField>
+
+<ParamField path="direction" type="vec2">
+  Blur direction and radius [x, y]
+</ParamField>
+
+**Varyings:**
+
+<ParamField path="texcoord" type="vec2">
+  Texture coordinates from vertex shader
+</ParamField>
+
+**Blur functions:**
+
+<Accordion title="blur5() - 5-tap gaussian blur">
+  
+  ```glsl demo/shader/blur.frag
+  vec4 blur5(sampler2D image, vec2 uv, vec2 resolution, vec2 direction) {
+    vec4 color = vec4(0.0);
+    vec2 off1 = vec2(0.66666) * direction;
+    color += texture2D(image, uv) * 0.29411764705882354;
+    color += texture2D(image, uv + (off1 / resolution)) * 0.35294117647058826;
+    color += texture2D(image, uv - (off1 / resolution)) * 0.35294117647058826;
+    return color; 
+  }
+  ```
+  
+  **Weights:** 0.294, 0.353, 0.353
+  
+</Accordion>
+
+<Accordion title="blur9() - 9-tap gaussian blur">
+  
+  ```glsl demo/shader/blur.frag
+  vec4 blur9(sampler2D image, vec2 uv, vec2 resolution, vec2 direction) {
+    vec4 color = vec4(0.0);
+    vec2 off1 = vec2(1.3846153846) * direction;
+    vec2 off2 = vec2(3.2307692308) * direction;
+    color += texture2D(image, uv) * 0.2270270270;
+    color += texture2D(image, uv + (off1 / resolution)) * 0.3162162162;
+    color += texture2D(image, uv - (off1 / resolution)) * 0.3162162162;
+    color += texture2D(image, uv + (off2 / resolution)) * 0.0702702703;
+    color += texture2D(image, uv - (off2 / resolution)) * 0.0702702703;
+    return color;
+  }
+  ```
+  
+</Accordion>
+
+<Accordion title="blur13() - 13-tap gaussian blur">
+  
+  ```glsl demo/shader/blur.frag
+  vec4 blur13(sampler2D image, vec2 uv, vec2 resolution, vec2 direction) {
+    vec4 color = vec4(0.0);
+    vec2 off1 = vec2(1.411764705882353) * direction;
+    vec2 off2 = vec2(3.2941176470588234) * direction;
+    vec2 off3 = vec2(5.176470588235294) * direction;
+    color += texture2D(image, uv) * 0.1964825501511404;
+    color += texture2D(image, uv + (off1 / resolution)) * 0.2969069646728344;
+    color += texture2D(image, uv - (off1 / resolution)) * 0.2969069646728344;
+    color += texture2D(image, uv + (off2 / resolution)) * 0.09447039785044732;
+    color += texture2D(image, uv - (off2 / resolution)) * 0.09447039785044732;
+    color += texture2D(image, uv + (off3 / resolution)) * 0.010381362401148057;
+    color += texture2D(image, uv - (off3 / resolution)) * 0.010381362401148057;
+    return color;
+  }
+  ```
+  
+</Accordion>
+
+**Implementation:**
+
+The shader uses `blur5()` by default. For stronger blur, it's applied iteratively with ping-pong buffers:
+
+```javascript demo/script/webgl.js
+var iterations = 8;
+for (var i = 0; i < iterations; i++) {
+  var radius = (iterations - i - 1);
+  uniforms.direction = i % 2 === 0 ? [radius, 0] : [0, radius];
+  drawFrame(materials['blur'], geometryQuad, writeBuffer.framebuffer);
+  // swap buffers
+}
+```
+
+**Reference:** [glsl-fast-gaussian-blur](https://github.com/Jam3/glsl-fast-gaussian-blur)
+
+### screen.frag
+
+Final composition fragment shader with glow and dithering.
+
+**Uniforms:**
+
+<ParamField path="frame" type="sampler2D">
+  Main rendered frame (motion blurred)
+</ParamField>
+
+<ParamField path="frameMotion" type="sampler2D">
+  Motion blur frame (unused in final composition)
+</ParamField>
+
+<ParamField path="frameBlur" type="sampler2D">
+  Gaussian blurred frame for glow effect
+</ParamField>
+
+<ParamField path="resolution" type="vec2">
+  Canvas resolution
+</ParamField>
+
+<ParamField path="time" type="float">
+  Current time for dither animation
+</ParamField>
+
+<ParamField path="fade" type="float">
+  Fade multiplier (0-1)
+</ParamField>
+
+**Varyings:**
+
+<ParamField path="texcoord" type="vec2">
+  Texture coordinates
+</ParamField>
+
+**Effects:**
+
+1. **Glow effect:** Blurred frame with power curve for neon look
+2. **Dithering:** Random noise to reduce color banding
+3. **Fade:** Global fade in/out
+
+**Code snippet:**
+
+```glsl demo/shader/screen.frag
+void main() {
+  vec2 uv = texcoord;
+  float dither = random(uv+fract(time));
+  vec4 blur = texture2D(frameBlur, vec2(uv.x,1.-uv.y));
+  vec4 neon = pow(blur, vec4(.5));
+  gl_FragColor  = texture2D(frame, uv);
+  gl_FragColor += neon;
+  gl_FragColor *= 0.9 + 0.1 * dither;
+  gl_FragColor *= fade;
+}
+```
+
+**Random function:**
+
+```glsl demo/shader/screen.frag
+float random (in vec2 st) {
+  return fract(sin(dot(st.xy,vec2(12.9898,78.233)))*43758.5453123);
+}
+```
+
+## Shader utilities
+
+Common utility functions used across multiple shaders.
+
+### Rotation matrix
+
+Creates 2D rotation matrix for vec2 transformations:
+
+```glsl
+mat2 rotation (float a) {
+  float c=cos(a),s=sin(a);
+  return mat2(c,-s,s,c);
+}
+```
+
+**Usage:**
+
+```glsl
+pos.xz *= rotation(time);
+pos.yz *= rotation(seed.w);
+```
+
+### Random function
+
+Generates pseudo-random value from 2D coordinate:
+
+```glsl
+float random (in vec2 st) {
+  return fract(sin(dot(st.xy,vec2(12.9898,78.233)))*43758.5453123);
+}
+```
+
+**Usage:**
+
+```glsl
+float dither = random(uv+fract(time));
+```
+
+## Shader loading
+
+Shaders are loaded as text files and compiled at runtime:
+
+```javascript demo/script/webgl.js
+loadFiles('shader/',[
+  'screen.vert',
+  'blur.frag',
+  'text.vert',
+  'screen.frag',
+  'geometry.vert',
+  'point.vert',
+  'tint.frag'
+], function(shaders) {
+  // shaders object contains shader source code
+  loadMaterials();
+});
+```
+
+## Shader hot-reload
+
+Shaders can be reloaded during development:
+
+```javascript demo/script/webgl.js
+socket.on('change', function(data) { 
+  if (data.path.includes("demo/shader/")) {
+    const url = data.path.substr("demo/shader/".length);
+    loadFiles("shader/",[url], function(shade) {
+      shaders[url] = shade[url];
+      loadMaterials();
+    });
+  }
+});
+```

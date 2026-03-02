@@ -1,0 +1,332 @@
+---
+title: BlenderWebSocket API
+description: Real-time communication with Blender for live animation control
+---
+
+The `BlenderWebSocket` class provides real-time communication between the WebGL demo and Blender, enabling live animation control and synchronization.
+
+## Constructor
+
+### BlenderWebSocket()
+
+Creates a WebSocket connection to Blender server and automatically reconnects on disconnect.
+
+```javascript
+const blenderSocket = new BlenderWebSocket();
+```
+
+**Connection details:**
+
+- Default URL: `ws://localhost:8137/`
+- Auto-reconnects every 100ms on connection close
+- Emits events for connection state and messages
+
+**Example usage:**
+
+```javascript demo/script/webgl.js
+var blenderSocket = new BlenderWebSocket();
+blenderSocket.addListener('time', function(newTime) {
+  timeElapsed = newTime;
+});
+```
+
+## Methods
+
+### addListener()
+
+Registers an event handler for a specific event type.
+
+```javascript
+addListener(event, handler)
+```
+
+<ParamField path="event" type="string">
+  Event name to listen for (see [Event types](#event-types))
+</ParamField>
+
+<ParamField path="handler" type="function">
+  Callback function to execute when event fires
+</ParamField>
+
+**Behavior:**
+
+- Creates event listener array if it doesn't exist
+- Adds handler to listener array for the event
+- Multiple handlers can be registered for same event
+
+**Example usage:**
+
+```javascript
+blenderSocket.addListener('open', function() {
+  console.log('Connected to Blender');
+});
+
+blenderSocket.addListener('time', function(time) {
+  console.log('Current frame:', time);
+});
+
+blenderSocket.addListener('error', function() {
+  console.error('WebSocket error');
+});
+```
+
+### removeListener()
+
+Unregisters an event handler.
+
+```javascript
+removeListener(event, handler)
+```
+
+<ParamField path="event" type="string">
+  Event name to remove handler from
+</ParamField>
+
+<ParamField path="handler" type="function">
+  Specific handler function to remove
+</ParamField>
+
+**Behavior:**
+
+- Finds handler in listener array
+- Removes it using splice
+- Does nothing if event or handler not found
+
+**Example usage:**
+
+```javascript
+function timeHandler(time) {
+  console.log(time);
+}
+
+blenderSocket.addListener('time', timeHandler);
+blenderSocket.removeListener('time', timeHandler);
+```
+
+## Event types
+
+The BlenderWebSocket emits various events based on connection state and received messages.
+
+### Connection events
+
+<ParamField path="open" type="event">
+  Fired when WebSocket connection is established
+</ParamField>
+
+<ParamField path="close" type="event">
+  Fired when WebSocket connection closes (auto-reconnect triggered)
+</ParamField>
+
+<ParamField path="error" type="event">
+  Fired when WebSocket encounters an error
+</ParamField>
+
+**Example:**
+
+```javascript
+blenderSocket.addListener('open', () => {
+  console.log('Connected to Blender');
+});
+
+blenderSocket.addListener('close', () => {
+  console.log('Disconnected, reconnecting...');
+});
+
+blenderSocket.addListener('error', () => {
+  console.error('Connection error');
+});
+```
+
+### Message events
+
+<ParamField path="time" type="event">
+  Fired when Blender sends current timeline position
+  
+  **Handler signature:** `function(time: number)`
+  
+  **Parameters:**
+  - `time` - Current frame/time from Blender timeline
+</ParamField>
+
+<ParamField path="refresh" type="event">
+  Fired when Blender requests a refresh (e.g., animation data changed)
+  
+  **Handler signature:** `function()`
+</ParamField>
+
+**Example:**
+
+```javascript
+blenderSocket.addListener('time', function(time) {
+  // Update animation to match Blender timeline
+  timeElapsed = time;
+});
+
+blenderSocket.addListener('refresh', function() {
+  // Reload animation data
+  reloadAnimations();
+});
+```
+
+### Error events
+
+<ParamField path="badFormat" type="event">
+  Fired when received message is not valid JSON
+  
+  **Handler signature:** `function(data: string)`
+  
+  **Parameters:**
+  - `data` - Raw message data that failed to parse
+</ParamField>
+
+<ParamField path="unknownMessage" type="event">
+  Fired when message type is not recognized
+  
+  **Handler signature:** `function(data: array)`
+  
+  **Parameters:**
+  - `data` - Parsed JSON array with unknown message type
+</ParamField>
+
+**Example:**
+
+```javascript
+blenderSocket.addListener('badFormat', function(rawData) {
+  console.error('Invalid JSON:', rawData);
+});
+
+blenderSocket.addListener('unknownMessage', function(data) {
+  console.warn('Unknown message type:', data[0]);
+});
+```
+
+## Message protocol
+
+Messages are sent as JSON arrays with the first element indicating message type.
+
+### Time message
+
+Sends current timeline position from Blender.
+
+```json
+["time", 3.5]
+```
+
+<ParamField path="[0]" type="string">
+  Message type: "time"
+</ParamField>
+
+<ParamField path="[1]" type="number">
+  Current frame/time value
+</ParamField>
+
+### Refresh message
+
+Requests the client to refresh animation data.
+
+```json
+["refresh"]
+```
+
+<ParamField path="[0]" type="string">
+  Message type: "refresh"
+</ParamField>
+
+## Internal implementation
+
+The class uses an internal event emitter pattern:
+
+```javascript demo/lib/BlenderWebSocket.js
+function emit(event) {
+  var handlers = listeners[event];
+  if (handlers) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    handlers.forEach(function (handler) {
+      handler.apply(null, args);
+    });
+  }
+}
+```
+
+Message handling:
+
+```javascript demo/lib/BlenderWebSocket.js
+websocket.onmessage = function (event) {
+  try {
+    var data = JSON.parse(event.data);
+  } catch (err) {
+    emit('badFormat', event.data);
+    return;
+  }
+
+  switch (data[0]) {
+  case 'refresh':
+    emit('refresh');
+    break;
+
+  case 'time':
+    self.time = data[1];
+    emit('time', self.time);
+    break;
+
+  default:
+    emit('unknownMessage', data);
+    break;
+  }
+};
+```
+
+## Usage patterns
+
+### Basic setup
+
+```javascript
+const socket = new BlenderWebSocket();
+let currentTime = 0;
+
+socket.addListener('time', function(time) {
+  currentTime = time;
+});
+```
+
+### Animation synchronization
+
+```javascript
+const socket = new BlenderWebSocket();
+let timeElapsed = 0;
+
+socket.addListener('time', function(newTime) {
+  timeElapsed = newTime;
+});
+
+function render(elapsed) {
+  // Use timeElapsed from Blender instead of requestAnimationFrame time
+  elapsed = timeElapsed;
+  
+  // Update animation
+  camera = animations['camera'].paths['location'].evaluate(elapsed);
+  
+  requestAnimationFrame(render);
+}
+```
+
+### Connection monitoring
+
+```javascript
+const socket = new BlenderWebSocket();
+let isConnected = false;
+
+socket.addListener('open', () => {
+  isConnected = true;
+  console.log('Blender connected');
+});
+
+socket.addListener('close', () => {
+  isConnected = false;
+  console.log('Blender disconnected');
+});
+
+socket.addListener('error', () => {
+  console.error('Connection error');
+});
+```

@@ -1,0 +1,100 @@
+---
+title: Development workflow
+description: Learn how to run the dev server and leverage hot-reload for rapid iteration
+---
+
+Cookie Party Invitro provides a streamlined development workflow with automatic file watching and hot-reload capabilities for shaders and animations.
+
+## Running the development server
+
+The project uses a concurrent setup that runs both an HTTP server and a file watcher:
+
+```bash
+npm run dev
+```
+
+This command executes two processes simultaneously:
+
+<Steps>
+  <Step title="HTTP server">
+    Serves the demo directory at `http://localhost:8080` (default port)
+  </Step>
+  
+  <Step title="File watcher">
+    Monitors the demo directory for file changes and emits socket events
+  </Step>
+</Steps>
+
+## Package scripts
+
+The development workflow is defined in `package.json`:
+
+```json
+"scripts": {
+  "server": "http-server ./demo",
+  "watch": "chokidar-socket-emitter -p demo",
+  "dev": "concurrently --kill-others \"npm run server\" \"npm run watch\""
+}
+```
+
+### Individual commands
+
+You can run each component separately if needed:
+
+```bash
+# Run only the HTTP server
+npm run server
+
+# Run only the file watcher
+npm run watch
+```
+
+<Note>
+The `--kill-others` flag ensures that if one process fails, all concurrent processes are terminated together.
+</Note>
+
+## File watching system
+
+The project uses `chokidar-socket-emitter` to monitor file changes:
+
+- Watches the `demo/` directory recursively
+- Emits Socket.IO events on port `5776` when files change
+- The WebGL application connects to this socket and reloads affected resources
+
+## Hot-reload capabilities
+
+The development server enables instant updates without manual page refresh:
+
+- **Shaders**: Automatically recompiled and reloaded when `.vert` or `.frag` files change
+- **Animations**: Animation data reloads when `.json` files in `demo/animation/` are modified
+- **No page refresh required**: Changes appear immediately in the running application
+
+<Tip>
+Keep your browser developer console open during development to monitor shader compilation and catch any errors.
+</Tip>
+
+## Development workflow
+
+Typical development iteration:
+
+<Steps>
+  <Step title="Start the dev server">
+    Run `npm run dev` in your terminal
+  </Step>
+  
+  <Step title="Open the demo">
+    Navigate to `http://localhost:8080` in your browser
+  </Step>
+  
+  <Step title="Edit files">
+    Modify shaders in `demo/shader/` or animations in `demo/animation/`
+  </Step>
+  
+  <Step title="See changes instantly">
+    The application automatically reloads modified resources without page refresh
+  </Step>
+</Steps>
+
+<Note>
+The file watcher monitors file changes but does not perform any transpilation or bundling. This is a simple, zero-config setup optimized for WebGL shader development.
+</Note>

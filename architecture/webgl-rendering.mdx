@@ -1,0 +1,288 @@
+---
+title: WebGL rendering
+description: Deep dive into the multi-pass WebGL rendering pipeline and shader system
+---
+
+The WebGL rendering system uses TWGL.js to manage a multi-pass pipeline with motion blur, gaussian blur, and stereo rendering.
+
+## Rendering pipeline
+
+The render loop executes multiple passes each frame:
+
+```javascript
+function render(elapsed) {
+  // Update time and evaluate animations
+  uniforms.time = elapsed;
+  uniforms.timeRotation += deltaTime * getAnimation('rotation-speed', elapsed);
+  
+  // Setup camera for stereo rendering
+  camera = animations['camera'].paths['location'].evaluate(elapsed);
+  target = animations['target'].paths['location'].evaluate(elapsed);
+  cameraLeft  = m4.lookAt([camera[0]-d*x[0], camera[1]-d*x[1], camera[2]-d*x[2]], target, y);
+  cameraRight = m4.lookAt([camera[0]+d*x[0], camera[1]+d*x[0], camera[2]+d*x[0]], target, y);
+  
+  // Render scene (red channel - left eye)
+  uniforms.tint = [1,0,0,1];
+  uniforms.viewProjection = m4.multiply(projection, m4.inverse(cameraLeft));
+  draw(materials['geometry'], geometryLine, gl.LINES);
+  
+  // Render scene (cyan channel - right eye)
+  uniforms.tint = [0,1,1,1];
+  uniforms.viewProjection = m4.multiply(projection, m4.inverse(cameraRight));
+  draw(materials['geometry'], geometryLine, gl.LINES);
+  
+  // Motion blur
+  drawFrame(materials['motion'], geometryQuad, frameMotion.framebuffer);
+  
+  // Gaussian blur (8 iterations)
+  for (var i = 0; i < iterations; i++) {
+    uniforms.direction = i % 2 === 0 ? [radius, 0] : [0, radius];
+    drawFrame(materials['blur'], geometryQuad, writeBuffer.framebuffer);
+  }
+  
+  // Final composition
+  uniforms.frame = frameMotion.attachments[0];
+  uniforms.frameBlur = writeBuffer.attachments[0];
+  drawFrame(materials['screen'], geometryQuad, null);
+}
+```
+
+## Framebuffer setup
+
+The system uses multiple framebuffers for different rendering stages:
+
+### Motion blur frames
+
+Motion blur is achieved by accumulating multiple frames:
+
+```javascript
+function setupMotionBlur() {
+  uniforms.motionFrames = motionFrames;
+  for (var index = 0; index < motionFrames; ++index) {
+    frames.push(twgl.createFramebufferInfo(gl));
+    uniforms['frame'+index] = frames[index].attachments[0];
+  }
+  // Dynamically generate motion blur shader
+  shaders['motion.frag'] = 'precision mediump float;\nvarying vec2 texcoord;\nuniform float motionFrames;\nuniform sampler2D '
+  for (var index = 0; index < motionFrames; ++index) 
+    shaders['motion.frag'] += 'frame'+index+',';
+  shaders['motion.frag'] = shaders['motion.frag'].replace(/.$/,";");
+  shaders['motion.frag'] += '\nvoid main() {\ngl_FragColor = vec4(0);'
+  for (var index = 0; index < motionFrames; ++index) 
+    shaders['motion.frag'] += '\ngl_FragColor += texture2D(frame'+index+', texcoord)/motionFrames;'
+  shaders['motion.frag'] += '\n}';
+}
+```
+
+<Info>
+The motion blur shader is generated dynamically based on the number of frames to accumulate. This provides flexible control over blur intensity.
+</Info>
+
+### Blur pass buffers
+
+Gaussian blur uses ping-pong rendering between two buffers:
+
+```javascript
+var frameBlurA = twgl.createFramebufferInfo(gl);
+var frameBlurB = twgl.createFramebufferInfo(gl);
+var writeBuffer = frameBlurA;
+var readBuffer = frameBlurB;
+
+for (var i = 0; i < iterations; i++) {
+  var radius = (iterations - i - 1)
+  if (i === 0) uniforms.frame = frameMotion.attachments[0];
+  else uniforms.frame = readBuffer.attachments[0];
+  uniforms.direction = i % 2 === 0 ? [radius, 0] : [0, radius];
+  drawFrame(materials['blur'], geometryQuad, writeBuffer.framebuffer);
+  // Swap buffers
+  var t = writeBuffer;
+  writeBuffer = readBuffer;
+  readBuffer = t;
+}
+```
+
+### Screen framebuffer
+
+The final composition renders directly to the screen (`null` framebuffer):
+
+```javascript
+// Final composition
+uniforms.frame = frameMotion.attachments[0];
+uniforms.frameBlur = writeBuffer.attachments[0];
+drawFrame(materials['screen'], geometryQuad, null);
+```
+
+## Material system
+
+Materials are shader programs created from vertex and fragment shader pairs:
+
+```javascript
+var materials = {};
+var materialMap = {
+  'geometry':  ['geometry.vert',  'tint.frag'],
+  'point':     ['point.vert',     'tint.frag'],
+  'text':      ['text.vert',      'tint.frag'],
+  'blur':      ['screen.vert',    'blur.frag'],
+  'motion':    ['screen.vert',    'motion.frag'],
+  'screen':    ['screen.vert',    'screen.frag']
+};
+
+function loadMaterials() {
+  Object.keys(materialMap).forEach(function(key) {
+    materials[key] = twgl.createProgramInfo(gl,
+      [shaders[materialMap[key][0]], shaders[materialMap[key][1]]]);
+  });
+}
+```
+
+### Geometry shader
+
+The geometry vertex shader applies rotation and expansion effects:
+
+```glsl
+precision mediump float;
+
+attribute vec4 position;
+attribute vec4 seed;
+
+uniform mat4 viewProjection;
+uniform float time, expansion, growth, timeRotation;
+uniform vec2 resolution;
+
+const float PI = 3.1415;
+
+mat2 rotation (float a) { float c=cos(a),s=sin(a); return mat2(c,-s,s,c); }
+
+void main () {
+  vec4 pos = position;
+  float t = 0.5 * timeRotation * (seed.w*0.5+0.5) + seed.w;
+  float ratio = mod(t, 1.);
+
+  // Expansion animation
+  pos.xz *= rotation(timeRotation*seed.w);
+  pos.yz *= rotation(timeRotation*seed.w);
+  pos.yx *= rotation(timeRotation*seed.w);
+  pos.xyz *= 0.2 + smoothstep(0.5,1.0,abs(seed.z));
+  pos.xyz += seed.xyz * 3.;
+  pos.xyz = normalize(pos.xyz) * max(3.*growth,length(pos.xyz));
+  pos.xz *= rotation(t*1.687);
+  pos.yz *= rotation(t*1.57468);
+  pos.yx *= rotation(t*1.132);
+
+  gl_Position = viewProjection * pos;
+}
+```
+
+### Blur shader
+
+The blur fragment shader uses optimized separable gaussian blur:
+
+```glsl
+precision mediump float;
+
+uniform sampler2D frame;
+uniform vec2 resolution;
+uniform bool flip;
+uniform vec2 direction;
+varying vec2 texcoord;
+
+vec4 blur5(sampler2D image, vec2 uv, vec2 resolution, vec2 direction) {
+  vec4 color = vec4(0.0);
+  vec2 off1 = vec2(0.66666) * direction;
+  color += texture2D(image, uv) * 0.29411764705882354;
+  color += texture2D(image, uv + (off1 / resolution)) * 0.35294117647058826;
+  color += texture2D(image, uv - (off1 / resolution)) * 0.35294117647058826;
+  return color; 
+}
+
+void main() {
+  vec2 uv = texcoord;
+  if (flip) {
+    uv.y = 1.0 - uv.y;
+  }
+  gl_FragColor = blur5(frame, uv, resolution, direction);
+}
+```
+
+### Screen shader
+
+The screen shader composites the sharp and blurred frames:
+
+```glsl
+precision mediump float;
+
+uniform sampler2D frame, frameBlur;
+uniform vec2 resolution;
+uniform float time, fade;
+varying vec2 texcoord;
+
+float random (in vec2 st) { 
+  return fract(sin(dot(st.xy,vec2(12.9898,78.233)))*43758.5453123); 
+}
+
+void main() {
+  vec2 uv = texcoord;
+  float dither = random(uv+fract(time));
+  vec4 blur = texture2D(frameBlur, vec2(uv.x,1.-uv.y));
+  vec4 neon = pow(blur, vec4(.5));
+  gl_FragColor  = texture2D(frame, uv);
+  gl_FragColor += neon;  // Add neon glow
+  gl_FragColor *= 0.9 + 0.1 * dither;  // Film grain
+  gl_FragColor *= fade;  // Fade in/out
+}
+```
+
+## Camera system
+
+The camera system supports anaglyph 3D rendering with separate left and right eye views:
+
+```javascript
+// Calculate camera basis vectors
+var z = v3.normalize(v3.subtract(camera,target));
+var x = v3.normalize(v3.cross([0,1,0],z));
+var y = v3.normalize(v3.cross(z,x));
+var d = divergence;  // Eye separation distance
+
+// Create left and right camera matrices
+cameraLeft  = m4.lookAt(
+  [camera[0]-d*x[0], camera[1]-d*x[1], camera[2]-d*x[2]], 
+  target, y
+);
+cameraRight = m4.lookAt(
+  [camera[0]+d*x[0], camera[1]+d*x[0], camera[2]+d*x[0]], 
+  target, y
+);
+
+// Dynamic field of view from animation
+var fieldOfView = 20+60*getAnimation('fov', elapsed);
+projection = m4.perspective(
+  fieldOfView*Math.PI/180, 
+  gl.canvas.width/gl.canvas.height, 
+  0.01, 100.0
+);
+```
+
+<Note>
+The anaglyph effect is created by rendering the scene twice - once with a red tint for the left eye, and once with a cyan tint for the right eye. When viewed with red/cyan glasses, this creates a stereo 3D effect.
+</Note>
+
+## Drawing utilities
+
+TWGL.js simplifies the WebGL drawing code:
+
+```javascript
+function draw(shader, geometry, mode) {
+  gl.useProgram(shader.program);
+  twgl.setBuffersAndAttributes(gl, shader, geometry);
+  twgl.setUniforms(shader, uniforms);
+  twgl.drawBufferInfo(gl, geometry, mode);
+}
+
+function drawFrame(shader, geometry, frame) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, frame);
+  gl.clearColor(0,0,0,1);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+  draw(shader, geometry, gl.TRIANGLES);
+}
+```

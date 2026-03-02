@@ -1,0 +1,183 @@
+---
+title: Configurable parameters
+description: Customize rendering and geometry parameters to control the visual output
+---
+
+Cookie Party Invitro exposes several configurable parameters that control rendering quality and geometry complexity. These parameters are defined in `demo/script/parameter.js`.
+
+## Parameter file location
+
+All configurable parameters are centralized in:
+
+```
+demo/script/parameter.js
+```
+
+This file is loaded before the main WebGL script and sets global variables that control the application behavior.
+
+## Rendering parameters
+
+These parameters control the camera and rendering quality:
+
+```javascript
+// Rendering
+var divergence = 0.2;
+var fieldOfView = 40;
+var motionFrames = 5;
+```
+
+### divergence
+
+- **Type**: Number
+- **Default**: `0.2`
+- **Description**: Stereoscopic camera separation distance for the anaglyph 3D effect
+- **Effect**: Higher values create stronger 3D depth when viewing with red/cyan glasses
+
+<Note>
+The divergence value controls the offset between the left (red) and right (cyan) camera views.
+</Note>
+
+### fieldOfView
+
+- **Type**: Number  
+- **Default**: `40`
+- **Description**: Base field of view in degrees (modified by Blender animation)
+- **Effect**: Controls the camera's perspective width. The actual FOV is dynamically calculated as `20 + 60 * fov_animation`
+
+### motionFrames
+
+- **Type**: Number
+- **Default**: `5`  
+- **Description**: Number of frames to accumulate for motion blur effect
+- **Effect**: Higher values create smoother motion blur but require more memory and processing
+
+<Tip>
+If you experience performance issues, reduce `motionFrames` to 3 or disable motion blur entirely by setting it to 1.
+</Tip>
+
+## Geometry parameters
+
+These parameters control the complexity of generated geometry:
+
+```javascript
+// Geometry
+var cubeCount = 30;
+var crossCount = 80;
+var circleCount = 40;
+var glassCount = 40;
+var circleSegment = 16;
+var pointCount = 1000;
+var lineSegment = 100;
+```
+
+### Primitive counts
+
+- **cubeCount**: Number of cube primitives (default: `30`)
+- **crossCount**: Number of cross/plus-sign primitives (default: `80`)
+- **circleCount**: Number of circle primitives (default: `40`)  
+- **glassCount**: Number of glass/transparent primitives (default: `40`)
+
+<Note>
+These counts determine how many instances of each primitive type are generated in the geometry buffers.
+</Note>
+
+### Geometry detail
+
+- **circleSegment**: Number of segments per circle (default: `16`)
+- **pointCount**: Total number of points in the point cloud (default: `1000`)
+- **lineSegment**: Number of segments in line primitives (default: `100`)
+
+<Warning>
+Increasing geometry counts and segments will improve visual quality but may impact performance on lower-end hardware.
+</Warning>
+
+## Modifying parameters
+
+To customize the visual output:
+
+<Steps>
+  <Step title="Open parameter file">
+    Edit `demo/script/parameter.js` in your text editor
+  </Step>
+  
+  <Step title="Adjust values">
+    Modify any of the numeric values to suit your needs
+  </Step>
+  
+  <Step title="Refresh the browser">
+    Reload the page to see your changes take effect
+  </Step>
+</Steps>
+
+<Note>
+Unlike shaders and animations, parameter changes require a manual page refresh since they are loaded during initialization.
+</Note>
+
+## Performance considerations
+
+Adjusting these parameters affects performance:
+
+### High performance impact
+
+- `motionFrames` - Each additional frame requires a full framebuffer
+- `cubeCount`, `crossCount`, `circleCount`, `glassCount` - More primitives = more draw calls
+- `pointCount` - Directly affects vertex count
+
+### Moderate performance impact  
+
+- `circleSegment` - Affects geometry tessellation quality
+- `lineSegment` - Affects line smoothness
+
+### Low performance impact
+
+- `divergence` - Only affects camera positioning
+- `fieldOfView` - Minimal performance impact
+
+## Recommended presets
+
+### High quality
+
+```javascript
+var motionFrames = 8;
+var cubeCount = 50;
+var crossCount = 120;
+var circleCount = 60;
+var pointCount = 2000;
+var circleSegment = 32;
+```
+
+### Balanced
+
+```javascript
+var motionFrames = 5;  // Default
+var cubeCount = 30;
+var crossCount = 80;
+var circleCount = 40;
+var pointCount = 1000;
+var circleSegment = 16;
+```
+
+### Low performance
+
+```javascript
+var motionFrames = 2;
+var cubeCount = 15;
+var crossCount = 40;
+var circleCount = 20;
+var pointCount = 500;
+var circleSegment = 8;
+```
+
+<Tip>
+Start with the default balanced preset and adjust individual parameters based on your hardware capabilities and visual preferences.
+</Tip>
+
+## Parameter usage in code
+
+Parameters are used throughout `demo/script/webgl.js`:
+
+- Motion blur setup reads `motionFrames` to create framebuffers (line 182-194)
+- Geometry generation uses count parameters to build vertex buffers
+- Camera setup uses `divergence` and `fieldOfView` for stereoscopic rendering (line 100-104)
+
+These global variables are accessed directly without requiring imports or module syntax.

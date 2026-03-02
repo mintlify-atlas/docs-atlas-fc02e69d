@@ -1,0 +1,67 @@
+---
+title: Introduction
+description: Welcome to Cookie Party Invitro - a WebGL creative coding demo with real-time Blender integration for artistic 3D visualizations
+---
+
+Cookie Party Invitro is a WebGL creative coding demo that showcases real-time 3D visualizations with live Blender integration. Built for the Cookie Party 2019 demoscene event, it demonstrates the power of combining custom GLSL shaders, TWGL.js rendering, and WebSocket-based animation control from Blender.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get the demo running in minutes
+  </Card>
+  <Card title="Setup" icon="wrench" href="/setup">
+    Configure your complete development environment
+  </Card>
+  <Card title="Architecture overview" icon="sitemap" href="/architecture">
+    Understand the project structure and design
+  </Card>
+  <Card title="WebGL rendering" icon="cube" href="/webgl-rendering">
+    Learn how the rendering pipeline works
+  </Card>
+</CardGroup>
+
+## What is Cookie Party Invitro?
+
+Cookie Party Invitro is an artistic 3D visualization demo that combines modern WebGL techniques with real-time animation control from Blender. It was created for Cookie Party 2019, a French demoscene party celebrating creative coding and computer graphics.
+
+<Note>
+  Check out the [live demo](http://shaderland.com/CookieParty/) and learn more about [Cookie Party 2019](https://2019.cookie.paris/)
+</Note>
+
+## Key features
+
+### Real-time Blender integration
+
+Control WebGL animations directly from Blender's timeline using WebSocket communication. The demo receives keyframe data and timeline position in real-time, enabling live performance and iteration.
+
+### Custom GLSL shaders
+
+The rendering pipeline uses custom vertex and fragment shaders for effects including:
+- Gaussian blur post-processing
+- Geometry transformations
+- Point rendering
+- Screen-space effects
+- Text rendering
+- Color tinting
+
+### TWGL.js rendering
+
+Built on [TWGL.js](https://twgljs.org/), a lightweight WebGL helper library that simplifies buffer creation, texture management, and shader compilation without sacrificing control or performance.
+
+### WebSocket-based animation export
+
+Animations are exported from Blender as JSON keyframe data using the HTML5 Animations addon, then synchronized in real-time via WebSocket server for live creative control.
+
+## Tech stack
+
+- **WebGL**: Real-time 3D graphics rendering
+- **TWGL.js**: WebGL helper library for simplified API
+- **Custom GLSL**: Vertex and fragment shaders for visual effects
+- **Blender 2.79**: 3D animation and timeline control
+- **WebSocket**: Real-time communication between Blender and browser
+- **Socket.io**: WebSocket client library
+- **Node.js**: Development server and build tools
+
+## Get started
+
+Ready to explore Cookie Party Invitro? Follow the [quickstart guide](/quickstart) to run the demo, or set up the [complete development environment](/setup) to start creating your own WebGL visualizations with Blender integration.

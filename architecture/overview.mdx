@@ -1,0 +1,109 @@
+---
+title: Architecture overview
+description: High-level system architecture and component interaction in Cookie Party Invitro
+---
+
+Cookie Party Invitro is built around a real-time WebGL rendering pipeline controlled by Blender via WebSocket. This architecture enables live creative coding with immediate visual feedback.
+
+## System components
+
+The application consists of four main components that work together:
+
+### WebGL renderer
+
+The core rendering engine uses TWGL.js to simplify WebGL operations. It manages:
+
+- Multi-pass rendering pipeline with framebuffers
+- Anaglyph stereo 3D rendering (red/cyan)
+- Motion blur and gaussian blur post-processing
+- Custom GLSL shaders for geometry, particles, and text
+
+### Blender WebSocket
+
+A WebSocket client connects to Blender on `ws://localhost:8137/` to receive:
+
+- Timeline updates (`time` events)
+- Refresh commands for hot-reloading
+- Real-time animation control
+
+This enables you to scrub through Blender's timeline and see the WebGL scene update instantly.
+
+### Animation system
+
+The Blender HTML5 animations library evaluates animation curves exported from Blender:
+
+- Camera position and target
+- Custom properties (rotation speed, fade, expansion, growth, FOV)
+- Text selection for dynamic text rendering
+- Bezier curve interpolation for smooth motion
+
+### Shader pipeline
+
+A multi-stage shader system renders the final output:
+
+1. **Geometry pass** - Renders wireframe geometry and particles to framebuffer
+2. **Motion blur pass** - Accumulates multiple frames for temporal blur
+3. **Gaussian blur pass** - Applies multi-iteration separable blur
+4. **Screen pass** - Composites blur with neon glow effect
+
+## Component interaction
+
+Here's how the components communicate:
+
+```
+Blender Timeline
+      |
+      | WebSocket (time events)
+      v
+Animation System
+      |
+      | Evaluates curves
+      v
+  Uniforms (camera, fade, rotation, etc.)
+      |
+      v
+WebGL Renderer
+      |
+      | Multi-pass rendering
+      v
+  Canvas Output
+```
+
+## Data flow
+
+The rendering loop follows this sequence:
+
+1. **Time update** - Blender sends current frame time via WebSocket
+2. **Animation evaluation** - Animation curves are evaluated for current time
+3. **Camera setup** - Left and right camera matrices computed for stereo rendering
+4. **Scene render** - Geometry rendered twice (red for left eye, cyan for right eye)
+5. **Motion blur** - Current frame accumulated with previous frames
+6. **Gaussian blur** - 8 iterations of separable blur for glow effect
+7. **Final composition** - Sharp and blurred frames composited with fade
+
+## Technology stack
+
+<Note>
+All dependencies are loaded via CDN in the HTML file, making the project extremely lightweight.
+</Note>
+
+### Core libraries
+
+- **TWGL.js** - WebGL wrapper for simplified buffer, shader, and framebuffer management
+- **Blender HTML5 animations** - Animation curve evaluation library
+- **Socket.io** - WebSocket client for Blender communication and hot-reload
+
+### Development tools
+
+- **File watching** - Detects shader and animation file changes
+- **Hot-reload** - Updates shaders and animations without page refresh
+- **WebSocket server** - Enables real-time Blender timeline synchronization
+
+## Performance considerations
+
+The architecture is optimized for real-time rendering:
+
+- **Efficient blur** - Uses separable gaussian blur (horizontal then vertical passes)
+- **Framebuffer reuse** - Ping-pongs between two buffers to reduce memory
+- **Minimal geometry** - Lines and points only, no complex meshes
+- **Simple shaders** - Optimized for real-time performance on medium precision hardware

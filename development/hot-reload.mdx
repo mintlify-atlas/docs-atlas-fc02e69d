@@ -1,0 +1,222 @@
+---
+title: Hot-reload system
+description: Deep dive into the hot-reload implementation for shaders and animations
+---
+
+Cookie Party Invitro implements a custom hot-reload system that watches for file changes and automatically updates shaders and animations without requiring a page refresh.
+
+## How hot-reload works
+
+The hot-reload system uses a Socket.IO connection between the file watcher and the WebGL application:
+
+<Steps>
+  <Step title="File watcher monitors changes">
+    `chokidar-socket-emitter` watches the `demo/` directory for file modifications
+  </Step>
+  
+  <Step title="Socket event emitted">
+    When a file changes, the watcher emits a Socket.IO event on port `5776` with the file path
+  </Step>
+  
+  <Step title="Client receives event">
+    The WebGL application listens for `change` events and checks the file path
+  </Step>
+  
+  <Step title="Resource reloaded">
+    Based on the path, the app reloads either the shader or animation data
+  </Step>
+</Steps>
+
+## Socket.IO connection
+
+The WebGL application connects to the file watcher's Socket.IO server:
+
+```javascript
+socket = io('http://localhost:5776');
+```
+
+<Note>
+The port `5776` is the default port used by `chokidar-socket-emitter`. Both the watcher and client must use the same port.
+</Note>
+
+## Shader hot-reload implementation
+
+From `demo/script/webgl.js:202-212`:
+
+```javascript
+// Shader hot-reload
+socket = io('http://localhost:5776');
+socket.on('change', function(data) { 
+  if (data.path.includes("demo/shader/")) {
+    const url = data.path.substr("demo/shader/".length);
+    loadFiles("shader/",[url], function(shade) {
+      shaders[url] = shade[url];
+      loadMaterials();
+    });
+  }
+});
+```
+
+### How shader reload works
+
+1. **Path detection**: Checks if the changed file is in `demo/shader/`
+2. **URL extraction**: Strips the `demo/shader/` prefix to get the relative shader filename
+3. **File reload**: Fetches the updated shader file content via AJAX
+4. **Shader update**: Replaces the shader source in the `shaders` object
+5. **Material recompilation**: Calls `loadMaterials()` to recompile all materials using that shader
+
+<Tip>
+The `loadMaterials()` function recompiles all materials, not just the one that changed. This ensures consistent state across all shader programs.
+</Tip>
+
+### Material loading function
+
+From `demo/script/webgl.js:176-180`:
+
+```javascript
+function loadMaterials() {
+  Object.keys(materialMap).forEach(function(key) {
+    materials[key] = twgl.createProgramInfo(gl,
+      [shaders[materialMap[key][0]], shaders[materialMap[key][1]]]);
+  });
+}
+```
+
+This function:
+- Iterates through all materials in the `materialMap`
+- Creates new WebGL program info from vertex and fragment shader pairs
+- Uses TWGL's `createProgramInfo` to compile and link shaders
+
+## Animation hot-reload implementation
+
+From `demo/script/webgl.js:214-227`:
+
+```javascript
+// Animation hot-reload
+socket = io('http://localhost:5776');
+socket.on('change', function(data) { 
+  if (data.path.includes("demo/animation/")) {
+    const url = data.path.substr("demo/animation/".length);
+    if (url.substr(url.lastIndexOf('.') + 1) == 'json') {
+      setTimeout(function(){
+        loadFiles("animation/",[url], function(anim) {
+          animations = new blenderHTML5Animations.ActionLibrary(
+            JSON.parse(anim[Object.keys(anim)[0]])
+          );
+        });
+      }, 250);
+    }
+  }
+});
+```
+
+### How animation reload works
+
+1. **Path detection**: Checks if the changed file is in `demo/animation/`
+2. **Extension check**: Only processes `.json` files (ignores other animation assets)
+3. **Delayed reload**: Waits 250ms to ensure file write is complete
+4. **File reload**: Fetches the updated animation JSON
+5. **Animation library rebuild**: Creates a new `ActionLibrary` from the parsed JSON
+
+<Warning>
+The 250ms delay is crucial for file system consistency. Some text editors write files in multiple operations, and reloading too quickly can result in reading incomplete data.
+</Warning>
+
+## Event data structure
+
+The Socket.IO `change` event contains:
+
+```javascript
+{
+  path: "demo/shader/geometry.vert"  // Full path to changed file
+}
+```
+
+The code extracts the relative path by removing the directory prefix:
+
+```javascript
+const url = data.path.substr("demo/shader/".length);
+// Result: "geometry.vert"
+```
+
+## Socket.IO event listeners
+
+Both shader and animation reload use the same event:
+
+- **Event name**: `change`
+- **Triggered by**: Any file modification in the watched `demo/` directory
+- **Handler**: Checks path to determine resource type
+
+<Note>
+The same Socket.IO instance could handle both events, but the code creates separate connections for clarity.
+</Note>
+
+## File loading utility
+
+Both reload systems use the `loadFiles()` utility function:
+
+```javascript
+loadFiles(baseDir, fileArray, callback)
+```
+
+- **baseDir**: Directory relative to demo root (e.g., `"shader/"`, `"animation/"`)
+- **fileArray**: Array of filenames to load
+- **callback**: Function called with loaded file contents as object
+
+This utility handles AJAX requests and ensures files are loaded before the callback executes.
+
+## Debugging hot-reload
+
+To verify hot-reload is working:
+
+<Steps>
+  <Step title="Open browser console">
+    Press F12 and navigate to the Console tab
+  </Step>
+  
+  <Step title="Monitor socket connection">
+    You should see a WebSocket connection to `localhost:5776`
+  </Step>
+  
+  <Step title="Edit a shader file">
+    Make a visible change (e.g., modify a color or transformation)
+  </Step>
+  
+  <Step title="Watch for updates">
+    The change should appear immediately without refresh
+  </Step>
+</Steps>
+
+<Tip>
+If hot-reload isn't working, check that:
+- The file watcher is running (`npm run watch` or `npm run dev`)
+- The browser console shows no connection errors
+- You're editing files in the correct `demo/shader/` or `demo/animation/` directories
+</Tip>
+
+## Limitations
+
+### No hot-reload for:
+
+- **Parameters**: Changes to `demo/script/parameter.js` require page refresh
+- **Main script**: Modifications to `demo/script/webgl.js` require page refresh  
+- **HTML/CSS**: Changes to layout or styles require page refresh
+- **Dependencies**: Updates to libraries require page refresh
+
+### Hot-reload only works for:
+
+- GLSL shader files (`.vert`, `.frag`) in `demo/shader/`
+- Animation JSON files (`.json`) in `demo/animation/`
+
+## Performance impact
+
+The hot-reload system has minimal runtime overhead:
+
+- Socket.IO connection is idle except during file changes
+- File reloading is asynchronous and doesn't block rendering
+- Material recompilation takes ~10-50ms depending on shader complexity
+- The render loop continues uninterrupted during reload
+
+<Note>
+You may notice a brief frame drop when reloading complex shaders, but this is typically imperceptible during development.
+</Note>

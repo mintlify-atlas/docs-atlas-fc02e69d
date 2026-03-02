@@ -1,0 +1,211 @@
+---
+title: Shader development
+description: Understanding the shader system and how to create custom visual effects
+---
+
+Cookie Party Invitro uses GLSL shaders for all rendering. The project includes several vertex and fragment shaders that work together through a material system.
+
+## Available shaders
+
+The project includes these shader files in `demo/shader/`:
+
+### Vertex shaders
+
+- `geometry.vert` - Transforms geometry primitives (cubes, crosses, circles)
+- `point.vert` - Renders point cloud geometry
+- `text.vert` - Transforms text mesh geometry
+- `screen.vert` - Full-screen quad for post-processing
+
+### Fragment shaders
+
+- `tint.frag` - Simple color tinting
+- `blur.frag` - Gaussian blur post-processing
+- `screen.frag` - Final composition with neon glow effect
+
+## Material system
+
+Shaders are combined into materials through the material map in `demo/script/webgl.js:31-37`:
+
+```javascript
+var materialMap = {
+  'geometry':  ['geometry.vert',  'tint.frag'],
+  'point':     ['point.vert',     'tint.frag'],
+  'text':      ['text.vert',      'tint.frag'],
+  'blur':      ['screen.vert',    'blur.frag'],
+  'motion':    ['screen.vert',    'motion.frag'],
+  'screen':    ['screen.vert',    'screen.frag']
+};
+```
+
+Each material pairs a vertex shader with a fragment shader. The `motion.frag` shader is generated dynamically for motion blur based on the `motionFrames` parameter.
+
+## Shader examples
+
+### Geometry vertex shader
+
+The `geometry.vert` shader handles animated geometry transformations:
+
+```glsl
+precision mediump float;
+
+attribute vec4 position;
+attribute vec4 seed;
+
+uniform mat4 viewProjection;
+uniform float time, expansion, growth, timeRotation;
+uniform vec2 resolution;
+
+const float PI = 3.1415;
+
+mat2 rotation (float a) { 
+  float c=cos(a),s=sin(a); 
+  return mat2(c,-s,s,c); 
+}
+
+void main () {
+  vec4 pos = position;
+  float t = 0.5 * timeRotation * (seed.w*0.5+0.5) + seed.w;
+  float ratio = mod(t, 1.);
+
+  // Expansion animation
+  pos.xz *= rotation(timeRotation*seed.w);
+  pos.yz *= rotation(timeRotation*seed.w);
+  pos.yx *= rotation(timeRotation*seed.w);
+  pos.xyz *= 0.2 + smoothstep(0.5,1.0,abs(seed.z));
+  pos.xyz += seed.xyz * 3.;
+  pos.xyz = normalize(pos.xyz) * max(3.*growth,length(pos.xyz));
+  
+  gl_Position = viewProjection * pos;
+}
+```
+
+<Note>
+Each vertex receives a random `seed` attribute for per-object variation in the animation.
+</Note>
+
+### Tint fragment shader
+
+The simplest fragment shader applies uniform color:
+
+```glsl
+precision mediump float;
+
+uniform float time;
+uniform vec4 tint;
+
+void main() {
+  gl_FragColor = vec4(tint);
+}
+```
+
+### Blur fragment shader
+
+Implements fast Gaussian blur for post-processing:
+
+```glsl
+precision mediump float;
+
+uniform sampler2D frame;
+uniform vec2 resolution;
+uniform vec2 direction;
+varying vec2 texcoord;
+
+vec4 blur5(sampler2D image, vec2 uv, vec2 resolution, vec2 direction) {
+  vec4 color = vec4(0.0);
+  vec2 off1 = vec2(0.66666) * direction;
+  color += texture2D(image, uv) * 0.29411764705882354;
+  color += texture2D(image, uv + (off1 / resolution)) * 0.35294117647058826;
+  color += texture2D(image, uv - (off1 / resolution)) * 0.35294117647058826;
+  return color; 
+}
+
+void main() {
+  vec2 uv = texcoord;
+  gl_FragColor = blur5(frame, uv, resolution, direction);
+}
+```
+
+<Tip>
+The blur shader uses separable Gaussian blur, applying horizontal and vertical passes separately for better performance.
+</Tip>
+
+### Screen composition shader
+
+The final `screen.frag` combines the rendered scene with the blurred neon glow:
+
+```glsl
+precision mediump float;
+
+uniform sampler2D frame, frameBlur;
+uniform vec2 resolution;
+uniform float time, fade;
+varying vec2 texcoord;
+
+float random (in vec2 st) { 
+  return fract(sin(dot(st.xy,vec2(12.9898,78.233)))*43758.5453123); 
+}
+
+void main() {
+  vec2 uv = texcoord;
+  float dither = random(uv+fract(time));
+  vec4 blur = texture2D(frameBlur, vec2(uv.x,1.-uv.y));
+  vec4 neon = pow(blur, vec4(.5));
+  gl_FragColor  = texture2D(frame, uv);
+  gl_FragColor += neon;  // Add neon glow
+  gl_FragColor *= 0.9 + 0.1 * dither;  // Subtle dithering
+  gl_FragColor *= fade;  // Animation fade control
+}
+```
+
+## Modifying shaders
+
+To create custom visual effects:
+
+<Steps>
+  <Step title="Edit shader files">
+    Open any `.vert` or `.frag` file in `demo/shader/`
+  </Step>
+  
+  <Step title="Modify GLSL code">
+    Change vertex transformations, colors, or post-processing effects
+  </Step>
+  
+  <Step title="Save the file">
+    The hot-reload system automatically recompiles and applies your changes
+  </Step>
+  
+  <Step title="Check the browser">
+    See your changes instantly without refreshing the page
+  </Step>
+</Steps>
+
+<Warning>
+Shader compilation errors will appear in the browser console. Always keep the console open during development to catch syntax errors.
+</Warning>
+
+## Shader uniforms
+
+Common uniforms available across shaders:
+
+- `time` - Elapsed animation time
+- `timeRotation` - Accumulated rotation time
+- `resolution` - Canvas resolution `[width, height]`
+- `viewProjection` - Combined view and projection matrix
+- `camera` - Camera position vector
+- `target` - Camera look-at target
+- `fade` - Animation fade parameter (from Blender)
+- `expansion` - Geometry expansion parameter
+- `growth` - Geometry growth parameter
+- `tint` - Color tint `[r, g, b, a]`
+
+## Hot-reload system
+
+When you modify a shader file:
+
+1. The file watcher detects the change in `demo/shader/`
+2. Socket.IO emits a change event with the file path
+3. The WebGL app reloads only the modified shader
+4. Materials using that shader are automatically recompiled
+5. The next frame renders with the updated shader
+
+See the [hot-reload documentation](/development/hot-reload) for implementation details.

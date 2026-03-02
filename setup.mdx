@@ -1,0 +1,171 @@
+---
+title: Setup
+description: Set up your complete development environment with Blender integration for Cookie Party Invitro
+---
+
+This guide walks you through setting up the complete development environment for Cookie Party Invitro, including Blender integration for real-time animation control.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- **Node.js**: Any recent LTS version for running the development server
+- **Blender 2.79**: Specific version required for addon compatibility
+- **Git**: For cloning the repository
+
+<Note>
+  The project specifically requires Blender 2.79 due to addon compatibility. Newer versions of Blender may not work with the required addons.
+</Note>
+
+## Install Blender addons
+
+Cookie Party Invitro uses two Blender addons for WebGL integration. You'll need to install both in Blender 2.79.
+
+<Steps>
+  <Step title="Install blender-html5-animations">
+    This addon exports keyframe animations from Blender as JSON files.
+    
+    1. Download [blender-html5-animations](https://github.com/KoltesDigital/blender-html5-animations)
+    2. In Blender, go to File > User Preferences > Add-ons
+    3. Click "Install from File" and select the downloaded addon
+    4. Enable the addon by checking its checkbox
+    
+    This addon allows you to export animation data that can be loaded in the WebGL demo.
+  </Step>
+  
+  <Step title="Install websocket-server-for-blender">
+    This addon sends timeline data to WebGL via WebSockets for real-time control.
+    
+    1. Download [websocket-server-for-blender](https://github.com/KoltesDigital/websocket-server-for-blender)
+    2. In Blender, go to File > User Preferences > Add-ons
+    3. Click "Install from File" and select the downloaded addon
+    4. Enable the addon by checking its checkbox
+    
+    This addon creates a WebSocket server that broadcasts Blender's timeline position and animation data to connected clients.
+  </Step>
+</Steps>
+
+## Clone and install
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/leon196/CookiePartyInvitro.git
+    cd CookiePartyInvitro
+    ```
+  </Step>
+  
+  <Step title="Install dependencies">
+    Install the required npm packages:
+    
+    ```bash
+    npm install
+    ```
+    
+    This installs:
+    - `concurrently` - Run multiple npm scripts simultaneously
+    - `socket.io-client` - WebSocket client for Blender communication
+    - `http-server` - Local development server  
+    - `chokidar-socket-emitter` - File watching for development
+  </Step>
+</Steps>
+
+## Running the development server
+
+<Steps>
+  <Step title="Start the dev server">
+    ```bash
+    npm run dev
+    ```
+    
+    This runs two processes concurrently:
+    - HTTP server serving the demo on `http://localhost:8080`
+    - File watcher for hot reload during development
+  </Step>
+  
+  <Step title="Open in browser">
+    Navigate to `http://localhost:8080` in your web browser. You should see the WebGL demo running with default animations.
+  </Step>
+  
+  <Step title="Connect Blender (optional)">
+    If you have Blender 2.79 with the websocket-server-for-blender addon:
+    
+    1. Open Blender 2.79
+    2. Enable the WebSocket server addon
+    3. Start the WebSocket server from the addon panel
+    4. The demo will automatically connect and sync with Blender's timeline
+    
+    Now when you scrub Blender's timeline or play animations, the WebGL demo updates in real-time.
+  </Step>
+</Steps>
+
+## Project structure
+
+After installation, your project structure will look like:
+
+```
+CookiePartyInvitro/
+├── demo/
+│   ├── index.html          # Main HTML entry point
+│   ├── script/             # JavaScript modules
+│   │   ├── webgl.js        # WebGL rendering setup
+│   │   ├── loader.js       # Asset loading
+│   │   ├── mouse.js        # Mouse interaction
+│   │   └── ...             # Other modules
+│   ├── shader/             # GLSL shaders
+│   │   ├── blur.frag       # Gaussian blur
+│   │   ├── geometry.vert   # Geometry vertex shader
+│   │   ├── screen.frag     # Screen fragment shader
+│   │   └── ...             # Other shaders
+│   └── lib/                # Third-party libraries
+├── package.json            # npm dependencies and scripts
+└── README.md
+```
+
+## Development workflow
+
+With the development server running:
+
+1. Edit files in the `demo/` directory
+2. The file watcher detects changes
+3. The browser automatically reloads
+4. If Blender is connected, timeline sync continues after reload
+
+### Available npm scripts
+
+<CodeGroup>
+```json package.json
+{
+  "scripts": {
+    "server": "http-server ./demo",
+    "watch": "chokidar-socket-emitter -p demo",
+    "dev": "concurrently --kill-others \"npm run server\" \"npm run watch\""
+  }
+}
+```
+</CodeGroup>
+
+- `npm run server` - Start HTTP server only
+- `npm run watch` - Start file watcher only  
+- `npm run dev` - Run both server and watcher (recommended)
+
+## How it works
+
+The Cookie Party Invitro development environment connects three systems:
+
+1. **Blender** exports animation keyframes via the HTML5 Animations addon and sends real-time timeline data via WebSocket
+2. **Node.js development server** serves the WebGL demo and watches for file changes
+3. **WebGL demo** receives animation data and timeline updates, rendering the visualization in real-time
+
+This architecture enables live creative iteration - you can adjust animations in Blender and see results immediately in the browser.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture overview" icon="sitemap" href="/architecture">
+    Understand how the components work together
+  </Card>
+  <Card title="WebGL rendering" icon="cube" href="/webgl-rendering">
+    Explore the rendering pipeline and shaders
+  </Card>
+</CardGroup>
