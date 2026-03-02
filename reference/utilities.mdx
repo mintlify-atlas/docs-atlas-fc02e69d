@@ -1,0 +1,180 @@
+---
+title: Utility modules
+description: Mouse input handling and geometry attribute utilities
+---
+
+Cookie Party Invitro includes several utility modules that handle mouse input, geometry generation, and mathematical operations.
+
+## Mouse module
+
+The `mouse` module (demo/script/mouse.js) provides mouse and wheel input tracking with delta calculations.
+
+### Properties
+
+<ParamField path="mouse.x" type="number">
+  Current mouse X position in pixels
+</ParamField>
+
+<ParamField path="mouse.y" type="number">
+  Current mouse Y position in pixels
+</ParamField>
+
+<ParamField path="mouse.z" type="number">
+  Mouse wheel accumulator value
+</ParamField>
+
+<ParamField path="mouse.clic" type="boolean">
+  True when mouse button is pressed
+</ParamField>
+
+<ParamField path="mouse.delta" type="object">
+  Delta values: `{ x, y, z }` representing movement since last frame
+</ParamField>
+
+<ParamField path="mouse.last" type="object">
+  Previous frame values: `{ x, y, z }`
+</ParamField>
+
+### Methods
+
+#### mouse.update()
+
+Updates delta calculations. Should be called once per frame.
+
+```javascript
+mouse.update(elapsed)
+```
+
+**Behavior:**
+- Calculates `delta.x` and `delta.y` from position changes
+- Applies decay to `delta.z` (wheel delta)
+
+#### Event handlers
+
+The module automatically attaches event listeners to the body element:
+
+- `onmousemove` - Updates x, y position
+- `onmousedown` - Sets `clic` to true
+- `onmouseup` - Sets `clic` to false
+- `onmouseout` - Resets `clic` and deltas
+- `onwheel` - Updates `delta.z`
+
+**Example usage:**
+
+```javascript demo/script/mouse.js
+// Access current mouse state
+if (mouse.clic) {
+  camera.x += mouse.delta.x * sensitivity;
+  camera.y += mouse.delta.y * sensitivity;
+}
+
+// Update deltas each frame
+mouse.update(elapsed);
+```
+
+## Geometry attributes
+
+The `attribute.js` module generates procedural geometry for lines and points.
+
+### attributesLine
+
+Buffer data for line geometry including cubes, crosses, circles, and glass primitives.
+
+**Structure:**
+
+```javascript
+{
+  position: [],           // Vertex positions [x, y, z, ...]
+  indices: {              // Line indices for connectivity
+    numComponents: 2,
+    data: []
+  },
+  seed: {                 // Random seed values per vertex
+    numComponents: 4,
+    data: []              // [x, y, z, t] per vertex
+  }
+}
+```
+
+**Generated geometry:**
+
+- **Cubes**: `cubeCount` wireframe cubes (24 indices each)
+- **Crosses**: `crossCount` 3-axis crosses (6 vertices each)  
+- **Circles**: `circleCount` circles with `circleSegment` segments
+- **Glass shapes**: `glassCount` complex glass primitives (72 vertices each)
+
+### attributesPoint
+
+Buffer data for point cloud rendering.
+
+**Structure:**
+
+```javascript
+{
+  position: [],           // Point positions [x, y, z, ...]
+  seed: {                 // Random seed for each point
+    numComponents: 4,
+    data: []              // [x, y, z, t] where t is normalized index
+  }
+}
+```
+
+**Generated geometry:**
+
+- `pointCount` points at origin (0, 0, 0)
+- Each point has unique random seed for shader-based displacement
+
+**Example usage:**
+
+```javascript demo/script/webgl.js
+// Create WebGL buffers from attributes
+const geometryLine = twgl.createBufferInfoFromArrays(gl, attributesLine);
+const geometryPoint = twgl.createBufferInfoFromArrays(gl, attributesPoint);
+
+// Draw line geometry
+draw(materials['geometry'], geometryLine, gl.LINES);
+
+// Draw point cloud
+draw(materials['point'], geometryPoint, gl.POINTS);
+```
+
+## DFT utility
+
+The `dft.js` module provides Discrete Fourier Transform for baking vertex animation curves.
+
+### dft()
+
+Computes DFT coefficients and generates GLSL code for curve reconstruction.
+
+```javascript
+function dft(array, iterations)
+```
+
+<ParamField path="array" type="number[]">
+  Input signal samples
+</ParamField>
+
+<ParamField path="iterations" type="number">
+  Number of frequency components to compute
+</ParamField>
+
+<ParamField path="returns" type="string">
+  GLSL code string that reconstructs the signal
+</ParamField>
+
+**Behavior:**
+
+- Computes frequency, amplitude, and phase for each component
+- Filters out negligible amplitudes (< 0.001)
+- Returns baked GLSL expression using cosine waves
+- Useful for encoding mesh vertex paths as shader code
+
+**Example output:**
+
+```glsl
+cos(a*1.+0.52)*0.42+cos(a*2.+1.23)*0.18+cos(a*3.+-0.45)*0.09
+```
+
+<Note>
+The DFT utility is currently unused in the production code but remains available for advanced vertex animation baking.
+</Note>

@@ -191,6 +191,61 @@ void main() {
 setupMotionBlur();
 ```
 
+## File loading utilities
+
+### loadFiles()
+
+Asynchronously loads multiple files from a specified path.
+
+```javascript
+function loadFiles(path, files, callback, callbackProgress)
+```
+
+<ParamField path="path" type="string">
+  Base path for loading files
+</ParamField>
+
+<ParamField path="files" type="string[]">
+  Array of file names to load
+</ParamField>
+
+<ParamField path="callback" type="function">
+  Callback invoked with loaded files object when all files complete
+</ParamField>
+
+<ParamField path="callbackProgress" type="function">
+  Optional progress callback invoked after each file loads
+</ParamField>
+
+**Behavior:**
+
+- Loads each file via XMLHttpRequest
+- Returns object with filenames as keys and file content as values
+- Invokes progress callback with completion ratio (0-1) and filename
+- Calls main callback once when all files are loaded
+- On error, immediately calls callback with error
+
+**Example usage:**
+
+```javascript demo/script/webgl.js
+// Load shaders
+loadFiles('shader/', ['screen.vert', 'blur.frag', 'tint.frag'], function(shaders) {
+  // shaders object contains: { 'screen.vert': '...', 'blur.frag': '...', ... }
+});
+
+// Load animation data
+loadFiles('animation/', ['animation.json'], function(animationData) {
+  var animations = new blenderHTML5Animations.ActionLibrary(JSON.parse(animationData['animation.json']));
+});
+
+// Load with progress tracking
+loadFiles('animation/', textList, function(meshes) {
+  // Process meshes
+}, function(progress, filename) {
+  console.log(`Loaded ${filename}: ${Math.round(progress * 100)}%`);
+});
+```
+
 ## Animation utilities
 
 ### getAnimation()

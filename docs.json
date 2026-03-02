@@ -10,12 +10,12 @@
   "navbar": {
     "primary": {
       "type": "github",
-      "href": "https://github.com/wullon/CookiePartyInvitro"
+      "href": "https://github.com/leon196/CookiePartyInvitro"
     }
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/wullon/CookiePartyInvitro"
+      "github": "https://github.com/leon196/CookiePartyInvitro"
     }
   },
   "navigation": {
@@ -51,7 +51,8 @@
         "pages": [
           "reference/webgl-api",
           "reference/blender-websocket",
-          "reference/shader-reference"
+          "reference/shader-reference",
+          "reference/utilities"
         ]
       }
     ]
